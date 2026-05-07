@@ -583,6 +583,12 @@ export default function App() {
       return
     }
 
+    if (checkout.metodoPago === "Transferencia") {
+      alert(
+        "Al confirmar tu pedido y gestionarlo por WhatsApp, te enviaremos el número de cuenta. Luego nos compartes el comprobante para confirmar y enviar tu pedido."
+      )
+    }
+
     const numeroPedido = siguienteNumeroPedido()
     const mensaje = generarMensajeWhatsApp(numeroPedido)
     const pedidoInfo = {
