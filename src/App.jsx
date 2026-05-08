@@ -11,9 +11,13 @@ import cita from "./images/cita.png"
 
 /* ================= DATA ================= */
 
-const WHATSAPP_DESTINO = "573226081851"
-const PEDIDO_KEY = "magicBooksLastOrderNumber"
+const WHATSAPP_DESTINO = "573148179439" // +57 314 8179439 (sin el "+")
+const PEDIDO_KEY = "magicBooksLastOrderNumber" // legacy (no se usa para evitar duplicados)
 const PEDIDO_INFO_KEY = "magicBooksLastOrderInfo"
+const PEDIDOS_API_URL = "/api/register-order"
+
+const TICKET_PREFIX = "magicBooksPrivateTicket_"
+const TICKET_LAST_TOKEN_KEY = "magicBooksPrivateTicketLastToken"
 
 const LIBROS = [
   "Orgullo y prejuicio",
@@ -197,10 +201,31 @@ const costoEnvioPorCiudad = (ciudad) =>
   CIUDADES_ENVIO.find((c) => c.value === ciudad)?.costo || 25000
 
 const siguienteNumeroPedido = () => {
-  const ultimo = Number(localStorage.getItem(PEDIDO_KEY) || "0")
-  const siguiente = ultimo + 1
-  localStorage.setItem(PEDIDO_KEY, String(siguiente))
-  return siguiente
+  // En este momento el frontend no tiene backend/Sheets para un consecutivo global.
+  // Para que no te salga "Pedido #1" en todos los navegadores, generamos un número único.
+  // Nota: el consecutivo 100% correcto por pedido debe venir del backend/Sheets.
+  const epochSec = Math.floor(Date.now() / 1000) // ~10 dígitos
+  const rand = Math.floor(Math.random() * 1000) // 0-999
+  return epochSec * 1000 + rand
+}
+
+const registrarPedidoEnSheet = async (payload) => {
+  const res = await fetch(PEDIDOS_API_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  })
+
+  if (!res.ok) {
+    throw new Error(`Error HTTP ${res.status}`)
+  }
+
+  const data = await res.json()
+  if (!data?.ok || !data?.numeroPedido) {
+    throw new Error(data?.error || "No se pudo registrar el pedido en la hoja")
+  }
+
+  return Number(data.numeroPedido)
 }
 
 function DropdownMultiSelect({
@@ -252,6 +277,7 @@ export default function App() {
   const [vista, setVista] = useState("home")
   const [menuOpen, setMenuOpen] = useState(false)
   const [carritoOpen, setCarritoOpen] = useState(false)
+  const [cartToast, setCartToast] = useState("")
 
   const [producto, setProducto] = useState(null)
   const [cantidad, setCantidad] = useState(1)
@@ -263,6 +289,7 @@ export default function App() {
 
   const [pedidos, setPedidos] = useState([])
   const [ultimoPedido, setUltimoPedido] = useState(null)
+  const [ticketPrivado, setTicketPrivado] = useState(null)
 
   const [checkout, setCheckout] = useState({
     nombre: "",
@@ -287,6 +314,34 @@ export default function App() {
       }
     }
   }, [])
+
+  useEffect(() => {
+    // Soporta link tipo: ?ticket=<token>
+    const url = new URL(window.location.href)
+    const token = url.searchParams.get("ticket")
+    if (!token) return
+
+    const raw = localStorage.getItem(`${TICKET_PREFIX}${token}`)
+    if (!raw) {
+      setTicketPrivado(null)
+      setVista("ticketPrivado")
+      return
+    }
+
+    try {
+      setTicketPrivado(JSON.parse(raw))
+      setVista("ticketPrivado")
+    } catch {
+      setTicketPrivado(null)
+      setVista("ticketPrivado")
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!cartToast) return
+    const t = setTimeout(() => setCartToast(""), 2500)
+    return () => clearTimeout(t)
+  }, [cartToast])
 
   const totalEnCarrito = pedidos.reduce((acc, item) => acc + item.cantidad, 0)
   const subtotalCOP = pedidos.reduce((acc, item) => acc + item.totalItem, 0)
@@ -414,6 +469,8 @@ export default function App() {
       }
     ])
 
+    setCarritoOpen(true)
+    setCartToast("Agregado al carrito")
     setVista("cajitas")
   }
 
@@ -461,6 +518,8 @@ export default function App() {
       }
     ])
 
+    setCarritoOpen(true)
+    setCartToast("Agregado al carrito")
     setVista("citas")
   }
 
@@ -557,7 +616,7 @@ export default function App() {
     return mensaje
   }
 
-  const finalizarPorWhatsApp = () => {
+  const finalizarPorWhatsApp = async () => {
     if (isBlank(checkout.nombre) || isBlank(checkout.whatsapp) || isBlank(checkout.direccion)) {
       alert("Completa nombre, WhatsApp y dirección.")
       return
@@ -589,8 +648,60 @@ export default function App() {
       )
     }
 
-    const numeroPedido = siguienteNumeroPedido()
+    const detallePedido = pedidos.map((p) => ({
+      tipo: p.tipo,
+      producto: p.producto,
+      cantidad: p.cantidad,
+      totalItem: p.totalItem,
+      personalizacion: p.personalizacion || [],
+      encuestas: p.encuestas || []
+    }))
+
+    let numeroPedido = null
+    try {
+      numeroPedido = await registrarPedidoEnSheet({
+        nombre: checkout.nombre,
+        whatsapp: checkout.whatsapp,
+        ciudad: ciudadLabel,
+        direccion: checkout.direccion,
+        tipoVivienda: checkout.tipoVivienda,
+        tipoEntrega: checkout.tipoEntrega,
+        nombreRecibe: checkout.nombreRecibe || "",
+        mensajeRegalo: checkout.mensajeRegalo || "",
+        metodoPago: checkout.metodoPago,
+        subtotal: subtotalCOP,
+        envio: envioCOP,
+        total: totalFinalCOP,
+        detallePedido
+      })
+    } catch (error) {
+      console.error(error)
+      alert(
+        "No pudimos guardar el pedido en el registro en este momento. Se abrirá WhatsApp igual con un número temporal."
+      )
+      numeroPedido = siguienteNumeroPedido()
+    }
+
     const mensaje = generarMensajeWhatsApp(numeroPedido)
+
+    // Ticket privado (solo funciona en este navegador/computador)
+    const token =
+      (globalThis.crypto?.randomUUID && globalThis.crypto.randomUUID()) ||
+      `${Date.now()}_${Math.floor(Math.random() * 1e9)}`
+
+    const ticket = {
+      token,
+      numeroPedido,
+      pedidos,
+      checkout: { ...checkout },
+      ciudadLabel,
+      createdAt: new Date().toISOString()
+    }
+
+    localStorage.setItem(`${TICKET_PREFIX}${token}`, JSON.stringify(ticket))
+    localStorage.setItem(TICKET_LAST_TOKEN_KEY, token)
+    setTicketPrivado(ticket)
+
     const pedidoInfo = {
       numero: numeroPedido,
       estado: "Pedido listo, gestionando por WhatsApp"
@@ -631,6 +742,7 @@ export default function App() {
 
           {carritoOpen && (
             <div style={styles.cartBox}>
+              {cartToast && <div style={styles.cartToast}>{cartToast}</div>}
               {pedidos.length === 0 ? (
                 <p style={styles.emptyCart}>Tu carrito está vacío</p>
               ) : (
@@ -699,10 +811,117 @@ export default function App() {
             {ultimoPedido && (
               <p style={styles.resumeTotal}>Número de pedido: #{ultimoPedido.numero}</p>
             )}
+
+            {ticketPrivado && (
+              <>
+                <p style={styles.textLong}>
+                  Ticket privado: solo funciona en este navegador/computador.
+                </p>
+                <button
+                  style={styles.buyBtn}
+                  onClick={() => setVista("ticketPrivado")}
+                >
+                  Ver mi ticket privado
+                </button>
+                <a
+                  style={{ display: "block", marginTop: 10, color: "#5b3a8a" }}
+                  href={`${
+                    window.location.origin
+                  }${window.location.pathname}?ticket=${encodeURIComponent(
+                    ticketPrivado.token
+                  )}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Abrir el link del ticket privado
+                </a>
+              </>
+            )}
+
             <button style={styles.buyBtn} onClick={reiniciarDesdeCero}>
               Volver a la página principal
             </button>
           </div>
+        </div>
+      )}
+
+      {vista === "ticketPrivado" && (
+        <div style={styles.page}>
+          <button style={styles.back} onClick={() => setVista("home")}>
+            Volver
+          </button>
+          <h2 style={styles.sectionTitle}>Ticket privado</h2>
+
+          {!ticketPrivado ? (
+            <div style={{ ...styles.formBox, maxWidth: 520, textAlign: "center" }}>
+              <p style={styles.description}>
+                No se encontró tu ticket en este navegador. Si compartes el link, solo
+                funciona en este computador.
+              </p>
+            </div>
+          ) : (
+            <div style={styles.formBox}>
+              <p style={styles.resumeTotal}>Pedido #{ticketPrivado.numeroPedido}</p>
+              <p style={styles.textLong}>
+                Fecha: {new Date(ticketPrivado.createdAt).toLocaleString("es-CO")}
+              </p>
+
+              <h3 style={styles.sectionTitle}>Cliente</h3>
+              <p style={styles.textLong}>
+                Nombre: {ticketPrivado.checkout?.nombre || "-"} <br />
+                WhatsApp: {ticketPrivado.checkout?.whatsapp || "-"} <br />
+                Ciudad: {ticketPrivado.ciudadLabel || "-"} <br />
+                Dirección: {ticketPrivado.checkout?.direccion || "-"}
+              </p>
+
+              <h3 style={styles.sectionTitle}>Detalle</h3>
+              {ticketPrivado.pedidos?.map((p, idx) => (
+                <div
+                  key={idx}
+                  style={{
+                    marginTop: 14,
+                    padding: 12,
+                    borderRadius: 12,
+                    background: "#f3e7ff"
+                  }}
+                >
+                  <p style={{ margin: 0, fontWeight: 800, color: "#5b3a8a" }}>
+                    {p.producto} x{p.cantidad}
+                  </p>
+                  <p style={{ margin: "6px 0 0", color: "#444", fontSize: 14 }}>
+                    Subtotal: {formatoCOP(p.totalItem)}
+                  </p>
+
+                  {p.tipo === "cajita" && (
+                    <div style={{ marginTop: 8 }}>
+                      {p.personalizacion?.map((x, i) => (
+                        <p
+                          key={i}
+                          style={{ margin: "4px 0", color: "#444", fontSize: 14 }}
+                        >
+                          Cajita {i + 1}: {x.libro} / {x.color}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+
+                  {p.tipo === "cita" && (
+                    <div style={{ marginTop: 8 }}>
+                      {p.encuestas?.map((e, i) => (
+                        <p
+                          key={i}
+                          style={{ margin: "4px 0", color: "#444", fontSize: 14 }}
+                        >
+                          Cita {i + 1}: {e.generos?.join(", ")} |{" "}
+                          {e.tipoHistoria?.join(", ")} | {e.spicy}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -1171,6 +1390,15 @@ const styles = {
     zIndex: 999,
     maxHeight: "70vh",
     overflowY: "auto"
+  },
+  cartToast: {
+    background: "#d9b3ff",
+    color: "#5b3a8a",
+    fontWeight: 800,
+    padding: "8px 10px",
+    borderRadius: 10,
+    marginBottom: 10,
+    textAlign: "center"
   },
   emptyCart: { margin: 0 },
   cartItem: { borderBottom: "2px solid #ddd", paddingBottom: "12px", marginBottom: "12px", textAlign: "left" },
