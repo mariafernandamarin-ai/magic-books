@@ -1,6 +1,5 @@
 const APPS_SCRIPT_URL =
-  "https://script.google.com/macros/s/AKfycbyHOfr3oCfrEzJGNeo4_hYlI3VVEfHR0-6S7f2vST5M5GjqyR0Edl5PZ92E6XZmk-l3PA/exec"
-
+  "https://script.google.com/macros/s/AKfycbzTUP91hSA0j_kM9JwQ4JShS14jgpapeNA0j3GJxNBDaC3tVRVpUUueGWypW4eAi-bLWA/exec"
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ ok: false, error: "Method not allowed" })
