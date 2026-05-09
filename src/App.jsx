@@ -6,6 +6,7 @@ import tiktok from "./images/tiktok.png"
 import aurora from "./images/cajaaurora.png"
 import vita from "./images/cajavita.png"
 import nebula from "./images/cajanebula.png"
+import cita from "./images/cita.png"
 import fondom from "./images/fondom.png"
 
 const APPS_SCRIPT_URL =
@@ -15,6 +16,15 @@ const ADMIN_PASSWORD = "ZoePedidos2026"
 const PEDIDO_INFO_KEY = "magicBooksLastOrderInfo"
 const TICKET_PREFIX = "magicBooksPrivateTicket_"
 const WHATSAPP_DESTINO = "573148179439"
+
+const MENU_ITEMS = [
+  { key: "cajitas", label: "Cajitas literarias" },
+  { key: "citas", label: "Citas ciegas" },
+  { key: "productos", label: "Mas productos" },
+  { key: "admin", label: "Panel privado" }
+]
+
+const CANTIDADES = [1, 2, 3, 4, 5]
 
 const COLORES = [
   "Rosado pastel",
@@ -29,20 +39,6 @@ const COLORES = [
   "Beige"
 ]
 
-const CAJAS = {
-  aurora: { nombre: "Caja Aurora", precio: 100000, img: aurora },
-  vita: { nombre: "Caja Vita", precio: 165000, img: vita },
-  nebula: { nombre: "Caja Nebula", precio: 230000, img: nebula }
-}
-
-const MENU_ITEMS = [
-  { key: "cajitas", label: "Cajitas literarias" },
-  { key: "productos", label: "Mas productos" },
-  { key: "admin", label: "Panel privado" }
-]
-
-const CANTIDADES = [1, 2, 3, 4, 5]
-
 const CIUDADES_ENVIO = [
   { value: "cali", label: "Cali", costo: 9000 },
   { value: "palmira", label: "Palmira", costo: 9000 },
@@ -53,14 +49,45 @@ const CIUDADES_ENVIO = [
   { value: "otra", label: "Otra ciudad", costo: 9000 }
 ]
 
+const CAJAS = {
+  aurora: {
+    nombre: "Caja Aurora",
+    precio: 100000,
+    img: aurora,
+    descripcion: "Incluye libro, stickers, separador y post-its."
+  },
+  vita: {
+    nombre: "Caja Vita",
+    precio: 165000,
+    img: vita,
+    descripcion: "Incluye libro y accesorios premium."
+  },
+  nebula: {
+    nombre: "Caja Nebula",
+    precio: 230000,
+    img: nebula,
+    descripcion: "Incluye libro, agenda y experiencia completa."
+  }
+}
+
+const CITAS = {
+  clasica: {
+    nombre: "Cita a Ciegas - Edicion Clasica",
+    precio: 80000,
+    img: cita,
+    descripcion: "Una experiencia sorpresa para descubrir una nueva historia."
+  },
+  premium: {
+    nombre: "Cita a Ciegas - Edicion Premium",
+    precio: 150000,
+    img: cita,
+    descripcion: "Version premium con seleccion especial."
+  }
+}
+
 const formatoCOP = (v) => `${Number(v || 0).toLocaleString("es-CO")} COP`
 const isBlank = (v) => !String(v || "").trim()
-const isOlderThan30Days = (d) => {
-  if (!d) return false
-  const date = new Date(d)
-  if (Number.isNaN(date.getTime())) return false
-  return Date.now() - date.getTime() > 30 * 24 * 60 * 60 * 1000
-}
+const onlyNumber = (v) => Number(String(v || "").replace(/[^\d]/g, "") || 0)
 
 const parseJsonSafe = async (res) => {
   const txt = await res.text()
@@ -72,19 +99,34 @@ const parseJsonSafe = async (res) => {
 }
 
 const callAppsScript = async (payload, method = "POST") => {
+  const query = new URLSearchParams({
+    ...payload,
+    _t: String(Date.now())
+  }).toString()
+
+  const url = method === "GET" ? `${APPS_SCRIPT_URL}?${query}` : APPS_SCRIPT_URL
+
   const res = await fetch(
-    method === "GET" ? `${APPS_SCRIPT_URL}?${new URLSearchParams(payload).toString()}` : APPS_SCRIPT_URL,
+    url,
     method === "GET"
-      ? { method: "GET" }
+      ? { method: "GET", cache: "no-store" }
       : {
           method: "POST",
           headers: { "Content-Type": "text/plain;charset=utf-8" },
           body: JSON.stringify(payload)
         }
   )
+
   const data = await parseJsonSafe(res)
   if (!res.ok || !data?.ok) throw new Error(data?.error || "Error de conexion")
   return data
+}
+
+const isOlderThan30Days = (dateValue) => {
+  if (!dateValue) return false
+  const d = new Date(dateValue)
+  if (Number.isNaN(d.getTime())) return false
+  return Date.now() - d.getTime() > 30 * 24 * 60 * 60 * 1000
 }
 
 export default function App() {
@@ -97,22 +139,14 @@ export default function App() {
 
   const [productoCaja, setProductoCaja] = useState(null)
   const [cantidadCaja, setCantidadCaja] = useState(1)
-  const [formularios, setFormularios] = useState([{ libroId: "", color: "" }])
+  const [formulariosCaja, setFormulariosCaja] = useState([{ libroId: "", color: "" }])
+
+  const [citaSeleccionada, setCitaSeleccionada] = useState(null)
+  const [cantidadCita, setCantidadCita] = useState(1)
 
   const [pedidos, setPedidos] = useState([])
   const [ultimoPedido, setUltimoPedido] = useState(null)
   const [ticketPrivado, setTicketPrivado] = useState(null)
-
-  // Admin
-  const [adminAuthed, setAdminAuthed] = useState(false)
-  const [adminPassInput, setAdminPassInput] = useState("")
-  const [adminPedidos, setAdminPedidos] = useState([])
-  const [adminExpanded, setAdminExpanded] = useState({})
-  const [adminError, setAdminError] = useState("")
-  const [adminLoading, setAdminLoading] = useState(false)
-
-  const [bookForm, setBookForm] = useState({ nombre: "", excedente: 0 })
-  const [productForm, setProductForm] = useState({ nombre: "", descripcion: "", precio: 0, fotoUrl: "" })
 
   const [checkout, setCheckout] = useState({
     nombre: "",
@@ -125,6 +159,22 @@ export default function App() {
     metodoPago: "",
     ciudadEnvio: "cali",
     otraCiudad: ""
+  })
+
+  // Admin
+  const [adminAuthed, setAdminAuthed] = useState(false)
+  const [adminPassInput, setAdminPassInput] = useState("")
+  const [adminPedidos, setAdminPedidos] = useState([])
+  const [adminExpanded, setAdminExpanded] = useState({})
+  const [adminError, setAdminError] = useState("")
+  const [adminLoading, setAdminLoading] = useState(false)
+
+  const [bookForm, setBookForm] = useState({ nombre: "", excedenteText: "0" })
+  const [productForm, setProductForm] = useState({
+    nombre: "",
+    descripcion: "",
+    precioText: "0",
+    fotoUrl: ""
   })
 
   useEffect(() => {
@@ -204,14 +254,14 @@ export default function App() {
   const abrirCaja = (key) => {
     setProductoCaja(CAJAS[key])
     setCantidadCaja(1)
-    setFormularios([{ libroId: "", color: "" }])
+    setFormulariosCaja([{ libroId: "", color: "" }])
     setVista("productoCaja")
   }
 
   const cambiarCantidadCaja = (n) => {
     if (totalItems + n > 5) return alert("Maximo 5 productos por compra.")
     setCantidadCaja(n)
-    setFormularios((prev) =>
+    setFormulariosCaja((prev) =>
       Array.from({ length: n }, (_, i) => ({
         libroId: prev[i]?.libroId || "",
         color: prev[i]?.color || ""
@@ -221,11 +271,11 @@ export default function App() {
 
   const agregarCajaCarrito = () => {
     if (!productoCaja) return
-    if (formularios.some((f) => !f.libroId || !f.color)) {
+    if (formulariosCaja.some((f) => !f.libroId || !f.color)) {
       return alert("Completa libro y color en todas las cajitas.")
     }
 
-    const detalle = formularios.map((f) => {
+    const detalle = formulariosCaja.map((f) => {
       const b = books.find((x) => x.id === f.libroId)
       return {
         libroId: f.libroId,
@@ -255,6 +305,31 @@ export default function App() {
     setCarritoOpen(true)
   }
 
+  const abrirCita = (key) => {
+    setCitaSeleccionada(CITAS[key])
+    setCantidadCita(1)
+    setVista("citaProducto")
+  }
+
+  const agregarCitaCarrito = () => {
+    if (!citaSeleccionada) return
+    if (totalItems + cantidadCita > 5) return alert("Maximo 5 productos por compra.")
+    const unit = Number(citaSeleccionada.precio || 0)
+    const totalItem = unit * cantidadCita
+    setPedidos((prev) => [
+      ...prev,
+      {
+        tipo: "cita",
+        producto: citaSeleccionada.nombre,
+        precioUnitario: unit,
+        cantidad: cantidadCita,
+        totalItem
+      }
+    ])
+    setVista("citas")
+    setCarritoOpen(true)
+  }
+
   const agregarProductoExtra = (prod) => {
     if (totalItems + 1 > 5) return alert("Maximo 5 productos por compra.")
     setPedidos((prev) => [
@@ -271,6 +346,8 @@ export default function App() {
     ])
     setCarritoOpen(true)
   }
+
+  const vaciarCarrito = () => setPedidos([])
 
   const finalizarCompra = async () => {
     if (isBlank(checkout.nombre) || isBlank(checkout.whatsapp) || isBlank(checkout.direccion)) {
@@ -349,13 +426,23 @@ export default function App() {
 
   const saveBookAdmin = async () => {
     if (isBlank(bookForm.nombre)) return alert("Nombre del libro requerido")
+    const excedente = onlyNumber(bookForm.excedenteText)
+
     try {
-      await callAppsScript({
+      const data = await callAppsScript({
         action: "save_book",
         nombre: bookForm.nombre.trim(),
-        excedente: Number(bookForm.excedente || 0)
+        excedente
       })
-      setBookForm({ nombre: "", excedente: 0 })
+
+      if (data?.book) {
+        setBooks((prev) => {
+          const sinActual = prev.filter((x) => x.id !== data.book.id)
+          return [...sinActual, data.book].sort((a, b) => String(a.nombre).localeCompare(String(b.nombre)))
+        })
+      }
+
+      setBookForm({ nombre: "", excedenteText: "0" })
       await cargarLibros()
     } catch (e) {
       alert(e.message)
@@ -373,15 +460,25 @@ export default function App() {
 
   const saveProductAdmin = async () => {
     if (isBlank(productForm.nombre)) return alert("Nombre del producto requerido")
+    const precio = onlyNumber(productForm.precioText)
+
     try {
-      await callAppsScript({
+      const data = await callAppsScript({
         action: "save_product",
         nombre: productForm.nombre.trim(),
         descripcion: productForm.descripcion.trim(),
-        precio: Number(productForm.precio || 0),
+        precio,
         fotoUrl: productForm.fotoUrl.trim()
       })
-      setProductForm({ nombre: "", descripcion: "", precio: 0, fotoUrl: "" })
+
+      if (data?.product) {
+        setCatalogProducts((prev) => {
+          const sinActual = prev.filter((x) => x.id !== data.product.id)
+          return [...sinActual, data.product]
+        })
+      }
+
+      setProductForm({ nombre: "", descripcion: "", precioText: "0", fotoUrl: "" })
       await cargarProductos()
     } catch (e) {
       alert(e.message)
@@ -415,14 +512,26 @@ export default function App() {
     <div style={styles.app}>
       <div style={styles.topBar}>
         <div style={styles.menuWrapper}>
-          <button style={styles.iconBtn} onClick={() => { setMenuOpen((p) => !p); setCarritoOpen(false) }}>
+          <button
+            style={styles.iconBtn}
+            onClick={() => {
+              setMenuOpen((p) => !p)
+              setCarritoOpen(false)
+            }}
+          >
             Menu
           </button>
           {menuOpen && (
             <div style={styles.dropdown}>
               {MENU_ITEMS.map((item, idx) => (
                 <div key={item.key}>
-                  <div style={styles.menuItem} onClick={() => { setVista(item.key); setMenuOpen(false) }}>
+                  <div
+                    style={styles.menuItem}
+                    onClick={() => {
+                      setVista(item.key)
+                      setMenuOpen(false)
+                    }}
+                  >
                     {item.label}
                   </div>
                   {idx < MENU_ITEMS.length - 1 && <div style={styles.divider} />}
@@ -433,7 +542,13 @@ export default function App() {
         </div>
 
         <div style={styles.menuWrapper}>
-          <button style={styles.iconBtn} onClick={() => { setCarritoOpen((p) => !p); setMenuOpen(false) }}>
+          <button
+            style={styles.iconBtn}
+            onClick={() => {
+              setCarritoOpen((p) => !p)
+              setMenuOpen(false)
+            }}
+          >
             Carrito {totalItems > 0 ? `(${totalItems})` : ""}
           </button>
           {carritoOpen && (
@@ -448,8 +563,16 @@ export default function App() {
                       <p style={styles.text}>Subtotal: {formatoCOP(p.totalItem)}</p>
                     </div>
                   ))}
-                  <button style={styles.clearBtn} onClick={() => setPedidos([])}>Vaciar carrito</button>
-                  <button style={styles.buyBtn} onClick={() => { setVista("checkout"); setCarritoOpen(false) }}>
+                  <button style={styles.clearBtn} onClick={vaciarCarrito}>
+                    Vaciar carrito
+                  </button>
+                  <button
+                    style={styles.buyBtn}
+                    onClick={() => {
+                      setVista("checkout")
+                      setCarritoOpen(false)
+                    }}
+                  >
                     Comprar
                   </button>
                 </>
@@ -473,6 +596,7 @@ export default function App() {
             </div>
           )}
           <button style={styles.btn} onClick={() => setVista("cajitas")}>Cajitas literarias</button>
+          <button style={styles.btn} onClick={() => setVista("citas")}>Citas ciegas</button>
           <button style={styles.btn} onClick={() => setVista("productos")}>Mas productos</button>
         </div>
       )}
@@ -499,6 +623,7 @@ export default function App() {
           <div style={styles.productPage}>
             <h2>{productoCaja.nombre}</h2>
             <p style={styles.price}>{formatoCOP(productoCaja.precio)}</p>
+            <p style={styles.text}>{productoCaja.descripcion}</p>
 
             <select
               value={cantidadCaja}
@@ -508,15 +633,16 @@ export default function App() {
               {CANTIDADES.map((n) => <option key={n} value={n}>{n}</option>)}
             </select>
 
-            {formularios.map((f, i) => (
+            {formulariosCaja.map((f, i) => (
               <div key={i} style={styles.formBox}>
                 <h4>Cajita {i + 1}</h4>
+
                 <select
                   style={styles.input}
                   value={f.libroId}
                   onChange={(e) => {
                     const v = e.target.value
-                    setFormularios((prev) => prev.map((x, idx) => idx === i ? { ...x, libroId: v } : x))
+                    setFormulariosCaja((prev) => prev.map((x, idx) => (idx === i ? { ...x, libroId: v } : x)))
                   }}
                 >
                   <option value="">Selecciona libro</option>
@@ -532,7 +658,7 @@ export default function App() {
                   value={f.color}
                   onChange={(e) => {
                     const v = e.target.value
-                    setFormularios((prev) => prev.map((x, idx) => idx === i ? { ...x, color: v } : x))
+                    setFormulariosCaja((prev) => prev.map((x, idx) => (idx === i ? { ...x, color: v } : x)))
                   }}
                 >
                   <option value="">Selecciona color</option>
@@ -542,6 +668,51 @@ export default function App() {
             ))}
 
             <button style={styles.buyBtn} onClick={agregarCajaCarrito}>Agregar al carrito</button>
+          </div>
+        </div>
+      )}
+
+      {vista === "citas" && (
+        <div style={styles.page}>
+          <button style={styles.back} onClick={() => setVista("home")}>Volver</button>
+          <h2 style={styles.sectionTitle}>Citas a ciegas</h2>
+          {Object.entries(CITAS).map(([key, item]) => (
+            <div key={key} style={styles.card}>
+              <img src={item.img} style={styles.productImg} alt={item.nombre} />
+              <div style={{ flex: 1 }}>
+                <h3 style={{ margin: 0 }}>{item.nombre}</h3>
+                <p style={styles.text}>{item.descripcion}</p>
+                <p style={styles.price}>{formatoCOP(item.precio)}</p>
+                <button style={styles.buyBtn} onClick={() => abrirCita(key)}>
+                  Personalizar esta cita
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {vista === "citaProducto" && citaSeleccionada && (
+        <div style={styles.page}>
+          <button style={styles.back} onClick={() => setVista("citas")}>Volver</button>
+          <div style={styles.productPage}>
+            <img src={citaSeleccionada.img} style={styles.productImg} alt={citaSeleccionada.nombre} />
+            <h2>{citaSeleccionada.nombre}</h2>
+            <p style={styles.price}>{formatoCOP(citaSeleccionada.precio)}</p>
+            <p style={styles.text}>{citaSeleccionada.descripcion}</p>
+
+            <label style={styles.label}>Cantidad</label>
+            <select
+              value={cantidadCita}
+              onChange={(e) => setCantidadCita(Number(e.target.value))}
+              style={styles.select}
+            >
+              {CANTIDADES.map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+
+            <button style={styles.buyBtn} onClick={agregarCitaCarrito}>
+              Agregar cita al carrito
+            </button>
           </div>
         </div>
       )}
@@ -578,22 +749,28 @@ export default function App() {
           <div style={styles.formBox}>
             <label style={styles.label}>Nombre completo</label>
             <input style={styles.input} value={checkout.nombre} onChange={(e) => setCheckout((p) => ({ ...p, nombre: e.target.value }))} />
+
             <label style={styles.label}>Numero de WhatsApp</label>
             <input style={styles.input} value={checkout.whatsapp} onChange={(e) => setCheckout((p) => ({ ...p, whatsapp: e.target.value }))} />
+
             <label style={styles.label}>Ciudad</label>
             <select style={styles.input} value={checkout.ciudadEnvio} onChange={(e) => setCheckout((p) => ({ ...p, ciudadEnvio: e.target.value }))}>
               {CIUDADES_ENVIO.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
             </select>
+
             {checkout.ciudadEnvio === "otra" && (
               <>
                 <label style={styles.label}>Escribe tu ciudad</label>
                 <input style={styles.input} value={checkout.otraCiudad} onChange={(e) => setCheckout((p) => ({ ...p, otraCiudad: e.target.value }))} />
               </>
             )}
+
             <label style={styles.label}>Direccion</label>
             <input style={styles.input} value={checkout.direccion} onChange={(e) => setCheckout((p) => ({ ...p, direccion: e.target.value }))} />
+
             <label style={styles.label}>Tipo de vivienda</label>
             <input style={styles.input} value={checkout.tipoVivienda} onChange={(e) => setCheckout((p) => ({ ...p, tipoVivienda: e.target.value }))} />
+
             <label style={styles.label}>Metodo de pago</label>
             <select style={styles.input} value={checkout.metodoPago} onChange={(e) => setCheckout((p) => ({ ...p, metodoPago: e.target.value }))}>
               <option value="">Selecciona metodo</option>
@@ -652,14 +829,11 @@ export default function App() {
 
           {!adminAuthed ? (
             <div style={styles.formBox}>
-              <p style={styles.notice}>Este panel privado es solo para los duenos y trabajadores de Magic Books.</p>
+              <p style={styles.notice}>
+                Este panel privado es solo para los duenos y trabajadores de Magic Books.
+              </p>
               <label style={styles.label}>Clave privada</label>
-              <input
-                type="password"
-                style={styles.input}
-                value={adminPassInput}
-                onChange={(e) => setAdminPassInput(e.target.value)}
-              />
+              <input type="password" style={styles.input} value={adminPassInput} onChange={(e) => setAdminPassInput(e.target.value)} />
               <button style={styles.buyBtn} onClick={loginAdmin}>Entrar</button>
             </div>
           ) : (
@@ -673,11 +847,12 @@ export default function App() {
                   onChange={(e) => setBookForm((p) => ({ ...p, nombre: e.target.value }))}
                 />
                 <input
-                  type="number"
+                  type="text"
+                  inputMode="numeric"
                   style={styles.input}
-                  placeholder="Excedente (0 si no tiene)"
-                  value={bookForm.excedente}
-                  onChange={(e) => setBookForm((p) => ({ ...p, excedente: Number(e.target.value || 0) }))}
+                  placeholder="Excedente (ej: 15000)"
+                  value={bookForm.excedenteText}
+                  onChange={(e) => setBookForm((p) => ({ ...p, excedenteText: e.target.value }))}
                 />
                 <button style={styles.buyBtn} onClick={saveBookAdmin}>Guardar libro</button>
 
@@ -705,11 +880,12 @@ export default function App() {
                   onChange={(e) => setProductForm((p) => ({ ...p, descripcion: e.target.value }))}
                 />
                 <input
-                  type="number"
+                  type="text"
+                  inputMode="numeric"
                   style={styles.input}
-                  placeholder="Precio"
-                  value={productForm.precio}
-                  onChange={(e) => setProductForm((p) => ({ ...p, precio: Number(e.target.value || 0) }))}
+                  placeholder="Precio (ej: 45000)"
+                  value={productForm.precioText}
+                  onChange={(e) => setProductForm((p) => ({ ...p, precioText: e.target.value }))}
                 />
                 <input
                   style={styles.input}
@@ -738,7 +914,9 @@ export default function App() {
                   <div key={p.numeroPedido} style={styles.adminTicket}>
                     <button
                       style={styles.adminTicketBtn}
-                      onClick={() => setAdminExpanded((prev) => ({ ...prev, [p.numeroPedido]: !prev[p.numeroPedido] }))}
+                      onClick={() =>
+                        setAdminExpanded((prev) => ({ ...prev, [p.numeroPedido]: !prev[p.numeroPedido] }))
+                      }
                     >
                       <span style={styles.adminFecha}>
                         {p.fechaCreacion ? new Date(p.fechaCreacion).toLocaleString("es-CO") : "Sin fecha"}
@@ -749,12 +927,8 @@ export default function App() {
 
                     {adminExpanded[p.numeroPedido] && (
                       <div style={styles.adminDetail}>
-                        <p style={styles.text}>
-                          <b>Cliente:</b> {p.nombre} | <b>WhatsApp:</b> {p.whatsapp}
-                        </p>
-                        <p style={styles.text}>
-                          <b>Total:</b> {formatoCOP(p.total)}
-                        </p>
+                        <p style={styles.text}><b>Cliente:</b> {p.nombre} | <b>WhatsApp:</b> {p.whatsapp}</p>
+                        <p style={styles.text}><b>Total:</b> {formatoCOP(p.total)}</p>
                         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                           <button style={styles.adminStateBtn} onClick={() => cambiarEstadoAdmin(p.numeroPedido, "Empacado")}>Empacado</button>
                           <button style={styles.adminStateBtn} onClick={() => cambiarEstadoAdmin(p.numeroPedido, "Enviado")}>Enviado</button>
@@ -772,9 +946,7 @@ export default function App() {
                       <div key={p.numeroPedido} style={styles.adminDeliveredMini}>
                         <span>#{p.numeroPedido}</span>
                         <span>{p.nombre || "Cliente"}</span>
-                        <span>
-                          {p.fechaEstado ? new Date(p.fechaEstado).toLocaleDateString("es-CO") : "Sin fecha"}
-                        </span>
+                        <span>{p.fechaEstado ? new Date(p.fechaEstado).toLocaleDateString("es-CO") : "Sin fecha"}</span>
                         <span>Entregado</span>
                       </div>
                     ))}
@@ -789,9 +961,7 @@ export default function App() {
       <div style={styles.footer}>
         <div style={styles.footerBlock}>
           <h3>Magic Books</h3>
-          <p style={styles.text}>
-            Magic Books es una tienda de experiencias literarias personalizadas.
-          </p>
+          <p style={styles.text}>Magic Books es una tienda de experiencias literarias personalizadas.</p>
         </div>
         <div style={styles.footerBlockCentered}>
           <h3>Redes</h3>
@@ -885,14 +1055,7 @@ const styles = {
     marginBottom: 6,
     alignItems: "center"
   },
-  deleteBtn: {
-    border: "none",
-    borderRadius: 8,
-    padding: "6px 8px",
-    background: "#ffe1ea",
-    color: "#7d1f46",
-    cursor: "pointer"
-  },
+  deleteBtn: { border: "none", borderRadius: 8, padding: "6px 8px", background: "#ffe1ea", color: "#7d1f46", cursor: "pointer" },
   adminDeliveredMini: {
     display: "grid",
     gridTemplateColumns: "80px 1fr 130px 100px",
@@ -910,11 +1073,5 @@ const styles = {
   footerBlock: { flex: "1 1 320px", maxWidth: "650px" },
   footerBlockCentered: { flex: "1 1 260px", display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center" },
   social: { display: "flex", gap: "8px", alignItems: "center", textDecoration: "none", marginTop: "8px", color: "#5b3a8a" },
-  icon: { width: "18px", height: "18px" },
-
-  dropdownMulti: { marginBottom: "16px", border: "1px solid #ddd", borderRadius: "10px", overflow: "hidden", background: "#fff" },
-  dropdownSummary: { cursor: "pointer", listStyle: "none", padding: "12px", fontWeight: 600, color: "#5b3a8a", display: "flex", justifyContent: "space-between", gap: "8px" },
-  dropdownCount: { fontWeight: 400, color: "#666", fontSize: "13px" },
-  dropdownPanel: { borderTop: "1px solid #eee", maxHeight: "220px", overflowY: "auto", padding: "10px" },
-  checkboxItem: { display: "flex", gap: "8px", alignItems: "center", padding: "6px 0", color: "#444" }
+  icon: { width: "18px", height: "18px" }
 }
