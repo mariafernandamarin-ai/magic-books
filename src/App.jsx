@@ -8,11 +8,11 @@ import aurora from "./images/cajaaurora.png"
 import vita from "./images/cajavita.png"
 import nebula from "./images/cajanebula.png"
 import cita from "./images/cita.png"
+import fondom from "./images/fondom.png"
 
 /* ================= DATA ================= */
 
 const WHATSAPP_DESTINO = "573148179439" // +57 314 8179439 (sin el "+")
-const PEDIDO_KEY = "magicBooksLastOrderNumber" // legacy (no se usa para evitar duplicados)
 const PEDIDO_INFO_KEY = "magicBooksLastOrderInfo"
 const PEDIDOS_API_URL = "/api/register-order"
 
@@ -48,21 +48,21 @@ const COLORES = [
 const CAJAS = {
   aurora: {
     nombre: "Caja Aurora",
-    precio: "60.000 COP",
+    precio: "100.000 COP",
     img: aurora,
     descripcion:
       "Incluye un libro seleccionado, stickers temáticos, separador y post-its."
   },
   vita: {
     nombre: "Caja Vita",
-    precio: "100.000 COP",
+    precio: "165.000 COP",
     img: vita,
     descripcion:
       "Incluye un libro seleccionado, separador, vela aromática, post-its, stickers, resaltadores y bolígrafo."
   },
   nebula: {
     nombre: "Caja Nébula",
-    precio: "180.000 COP",
+    precio: "230.000 COP",
     img: nebula,
     descripcion:
       "Incluye un libro seleccionado, separador, agenda, resaltadores, stickers, post-its, tote bag, vela aromática y detalle sorpresa."
@@ -152,13 +152,13 @@ const ESTILOS = [
 const PREFERENCIA_LIBRO = ["Autoconclusivos", "Sagas", "Me da igual"]
 
 const CIUDADES_ENVIO = [
-  { value: "cali", label: "Cali", costo: 8000 },
-  { value: "palmira", label: "Palmira", costo: 15000 },
-  { value: "yumbo", label: "Yumbo", costo: 15000 },
-  { value: "jamundi", label: "Jamundí", costo: 15000 },
-  { value: "medellin", label: "Medellín", costo: 25000 },
-  { value: "bogota", label: "Bogotá", costo: 25000 },
-  { value: "otra", label: "Otra ciudad", costo: 25000 }
+  { value: "cali", label: "Cali", costo: 9000 },
+  { value: "palmira", label: "Palmira", costo: 9000 },
+  { value: "yumbo", label: "Yumbo", costo: 9000 },
+  { value: "jamundi", label: "Jamundí", costo: 9000 },
+  { value: "medellin", label: "Medellín", costo: 9000 },
+  { value: "bogota", label: "Bogotá", costo: 9000 },
+  { value: "otra", label: "Otra ciudad", costo: 9000 }
 ]
 
 /* ================= HELPERS ================= */
@@ -198,14 +198,11 @@ const precioATotal = (precioTexto) => {
 const formatoCOP = (valor) => `${valor.toLocaleString("es-CO")} COP`
 
 const costoEnvioPorCiudad = (ciudad) =>
-  CIUDADES_ENVIO.find((c) => c.value === ciudad)?.costo || 25000
+  CIUDADES_ENVIO.find((c) => c.value === ciudad)?.costo || 9000
 
 const siguienteNumeroPedido = () => {
-  // En este momento el frontend no tiene backend/Sheets para un consecutivo global.
-  // Para que no te salga "Pedido #1" en todos los navegadores, generamos un número único.
-  // Nota: el consecutivo 100% correcto por pedido debe venir del backend/Sheets.
-  const epochSec = Math.floor(Date.now() / 1000) // ~10 dígitos
-  const rand = Math.floor(Math.random() * 1000) // 0-999
+  const epochSec = Math.floor(Date.now() / 1000)
+  const rand = Math.floor(Math.random() * 1000)
   return epochSec * 1000 + rand
 }
 
@@ -226,6 +223,19 @@ const registrarPedidoEnSheet = async (payload) => {
   }
 
   return Number(data.numeroPedido)
+}
+
+const withTimeout = async (promise, ms) => {
+  let timeoutId
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error("Timeout registrando pedido")), ms)
+  })
+
+  try {
+    return await Promise.race([promise, timeoutPromise])
+  } finally {
+    clearTimeout(timeoutId)
+  }
 }
 
 function DropdownMultiSelect({
@@ -316,7 +326,6 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    // Soporta link tipo: ?ticket=<token>
     const url = new URL(window.location.href)
     const token = url.searchParams.get("ticket")
     if (!token) return
@@ -523,8 +532,6 @@ export default function App() {
     setVista("citas")
   }
 
-  const vaciarCarrito = () => setPedidos([])
-
   const reiniciarDesdeCero = () => {
     setPedidos([])
     setCheckout({
@@ -541,6 +548,8 @@ export default function App() {
     })
     setVista("home")
   }
+
+  const vaciarCarrito = () => setPedidos([])
 
   const irACheckout = () => {
     if (pedidos.length === 0) {
@@ -648,6 +657,12 @@ export default function App() {
       )
     }
 
+    const whatsappWindow = window.open("about:blank", "_blank")
+    if (!whatsappWindow) {
+      alert("Tu navegador bloqueó la ventana emergente. Permite pop-ups para continuar.")
+      return
+    }
+
     const detallePedido = pedidos.map((p) => ({
       tipo: p.tipo,
       producto: p.producto,
@@ -659,32 +674,32 @@ export default function App() {
 
     let numeroPedido = null
     try {
-      numeroPedido = await registrarPedidoEnSheet({
-        nombre: checkout.nombre,
-        whatsapp: checkout.whatsapp,
-        ciudad: ciudadLabel,
-        direccion: checkout.direccion,
-        tipoVivienda: checkout.tipoVivienda,
-        tipoEntrega: checkout.tipoEntrega,
-        nombreRecibe: checkout.nombreRecibe || "",
-        mensajeRegalo: checkout.mensajeRegalo || "",
-        metodoPago: checkout.metodoPago,
-        subtotal: subtotalCOP,
-        envio: envioCOP,
-        total: totalFinalCOP,
-        detallePedido
-      })
+      numeroPedido = await withTimeout(
+        registrarPedidoEnSheet({
+          nombre: checkout.nombre,
+          whatsapp: checkout.whatsapp,
+          ciudad: ciudadLabel,
+          direccion: checkout.direccion,
+          tipoVivienda: checkout.tipoVivienda,
+          tipoEntrega: checkout.tipoEntrega,
+          nombreRecibe: checkout.nombreRecibe || "",
+          mensajeRegalo: checkout.mensajeRegalo || "",
+          metodoPago: checkout.metodoPago,
+          subtotal: subtotalCOP,
+          envio: envioCOP,
+          total: totalFinalCOP,
+          detallePedido
+        }),
+        6500
+      )
     } catch (error) {
       console.error(error)
-      alert(
-        "No pudimos guardar el pedido en el registro en este momento. Se abrirá WhatsApp igual con un número temporal."
-      )
+      alert("El registro está lento. Abriremos WhatsApp de inmediato con número temporal.")
       numeroPedido = siguienteNumeroPedido()
     }
 
     const mensaje = generarMensajeWhatsApp(numeroPedido)
 
-    // Ticket privado (solo funciona en este navegador/computador)
     const token =
       (globalThis.crypto?.randomUUID && globalThis.crypto.randomUUID()) ||
       `${Date.now()}_${Math.floor(Math.random() * 1e9)}`
@@ -704,12 +719,13 @@ export default function App() {
 
     const pedidoInfo = {
       numero: numeroPedido,
-      estado: "Pedido listo, gestionando por WhatsApp"
+      estado: "Pedido listo"
     }
     localStorage.setItem(PEDIDO_INFO_KEY, JSON.stringify(pedidoInfo))
     setUltimoPedido(pedidoInfo)
+
     const url = `https://wa.me/${WHATSAPP_DESTINO}?text=${encodeURIComponent(mensaje)}`
-    window.open(url, "_blank")
+    whatsappWindow.location.href = url
     reiniciarDesdeCero()
     setVista("pedidoConfirmado")
   }
@@ -805,42 +821,17 @@ export default function App() {
         <div style={styles.page}>
           <div style={styles.confirmCard}>
             <h2 style={styles.sectionTitle}>Pedido listo</h2>
-            <p style={styles.description}>
-              Tu pedido quedó registrado correctamente y ya está en gestión por WhatsApp.
-            </p>
+            <p style={styles.description}>Tu pedido quedó registrado correctamente.</p>
+
             {ultimoPedido && (
               <p style={styles.resumeTotal}>Número de pedido: #{ultimoPedido.numero}</p>
             )}
 
             {ticketPrivado && (
-              <>
-                <p style={styles.textLong}>
-                  Ticket privado: solo funciona en este navegador/computador.
-                </p>
-                <button
-                  style={styles.buyBtn}
-                  onClick={() => setVista("ticketPrivado")}
-                >
-                  Ver mi ticket privado
-                </button>
-                <a
-                  style={{ display: "block", marginTop: 10, color: "#5b3a8a" }}
-                  href={`${
-                    window.location.origin
-                  }${window.location.pathname}?ticket=${encodeURIComponent(
-                    ticketPrivado.token
-                  )}`}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Abrir el link del ticket privado
-                </a>
-              </>
+              <button style={styles.buyBtn} onClick={() => setVista("ticketPrivado")}>
+                Ver mi ticket de pedido
+              </button>
             )}
-
-            <button style={styles.buyBtn} onClick={reiniciarDesdeCero}>
-              Volver a la página principal
-            </button>
           </div>
         </div>
       )}
@@ -850,13 +841,12 @@ export default function App() {
           <button style={styles.back} onClick={() => setVista("home")}>
             Volver
           </button>
-          <h2 style={styles.sectionTitle}>Ticket privado</h2>
+          <h2 style={styles.sectionTitle}>Ticket de pedido</h2>
 
           {!ticketPrivado ? (
             <div style={{ ...styles.formBox, maxWidth: 520, textAlign: "center" }}>
               <p style={styles.description}>
-                No se encontró tu ticket en este navegador. Si compartes el link, solo
-                funciona en este computador.
+                No se encontró el ticket en este navegador.
               </p>
             </div>
           ) : (
@@ -920,6 +910,14 @@ export default function App() {
                   )}
                 </div>
               ))}
+
+              <p style={{ ...styles.notice, marginTop: 16 }}>
+                Recomendación: toma screenshot o captura de pantalla de este ticket.
+              </p>
+
+              <button style={styles.buyBtn} onClick={reiniciarDesdeCero}>
+                Volver a la página principal
+              </button>
             </div>
           )}
         </div>
@@ -1141,7 +1139,9 @@ export default function App() {
                   style={styles.input}
                 />
 
-                <label style={styles.label}>8) ¿Qué autores o libros NO quieres recibir? (opcional)</label>
+                <label style={styles.label}>
+                  8) ¿Qué autores o libros NO quieres recibir? (opcional)
+                </label>
                 <input
                   type="text"
                   value={encuesta.noQuieresRecibir}
@@ -1287,9 +1287,7 @@ export default function App() {
               </option>
             </select>
 
-            <p style={styles.notice}>Domicilio en Cali: 8.000 COP</p>
-            <p style={styles.notice}>Palmira, Yumbo, Jamundí: 15.000 COP</p>
-            <p style={styles.notice}>Medellín y Bogotá: 25.000 COP</p>
+            <p style={styles.notice}>Domicilio: 9.000 COP</p>
 
             <div style={styles.resumeBox}>
               <p style={styles.resumeText}>Subtotal productos: {formatoCOP(subtotalCOP)}</p>
@@ -1353,7 +1351,16 @@ export default function App() {
 /* ================= STYLES ================= */
 
 const styles = {
-  app: { fontFamily: "sans-serif", background: "#f7f0ff", minHeight: "100vh", padding: "20px" },
+  app: {
+    fontFamily: "sans-serif",
+    backgroundColor: "#f7f0ff",
+    backgroundImage: `url(${fondom})`,
+    backgroundRepeat: "no-repeat",
+    backgroundSize: "cover",
+    backgroundPosition: "top center",
+    minHeight: "100vh",
+    padding: "20px"
+  },
   topBar: { display: "flex", justifyContent: "flex-end", gap: "15px", position: "relative" },
   menuWrapper: { position: "relative" },
   iconBtn: {
@@ -1401,10 +1408,21 @@ const styles = {
     textAlign: "center"
   },
   emptyCart: { margin: 0 },
-  cartItem: { borderBottom: "2px solid #ddd", paddingBottom: "12px", marginBottom: "12px", textAlign: "left" },
+  cartItem: {
+    borderBottom: "2px solid #ddd",
+    paddingBottom: "12px",
+    marginBottom: "12px",
+    textAlign: "left"
+  },
   cartTitle: { marginBottom: "10px", color: "#5b3a8a" },
   cartText: { margin: "4px 0", color: "#444", fontSize: "14px" },
-  resumeBox: { background: "#f3e7ff", borderRadius: "10px", padding: "10px 12px", marginTop: "8px", marginBottom: "10px" },
+  resumeBox: {
+    background: "#f3e7ff",
+    borderRadius: "10px",
+    padding: "10px 12px",
+    marginTop: "8px",
+    marginBottom: "10px"
+  },
   resumeText: { margin: "4px 0", color: "#5b3a8a", fontSize: "14px" },
   resumeTotal: { margin: "4px 0", color: "#5b3a8a", fontWeight: "bold" },
   clearBtn: {
@@ -1428,7 +1446,13 @@ const styles = {
   header: { textAlign: "center" },
   logo: { width: "90px" },
   title: { fontSize: "40px", color: "#5b3a8a" },
-  center: { display: "flex", flexDirection: "column", alignItems: "center", gap: "15px", marginTop: "40px" },
+  center: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: "15px",
+    marginTop: "40px"
+  },
   orderStatusBox: {
     background: "#fff",
     border: "1px solid #e6d6ff",
@@ -1439,12 +1463,34 @@ const styles = {
   },
   orderStatusTitle: { margin: "0 0 6px 0", color: "#5b3a8a" },
   orderStatusText: { margin: 0, color: "#666", fontSize: "14px" },
-  btn: { padding: "12px", width: "220px", borderRadius: "12px", border: "none", background: "#d9b3ff", cursor: "pointer" },
+  btn: {
+    padding: "12px",
+    width: "220px",
+    borderRadius: "12px",
+    border: "none",
+    background: "#d9b3ff",
+    cursor: "pointer"
+  },
   page: { padding: "20px" },
-  back: { marginBottom: "20px", border: "none", background: "#eee", padding: "8px 12px", borderRadius: "8px", cursor: "pointer" },
+  back: {
+    marginBottom: "20px",
+    border: "none",
+    background: "#eee",
+    padding: "8px 12px",
+    borderRadius: "8px",
+    cursor: "pointer"
+  },
   sectionTitle: { textAlign: "center", color: "#5b3a8a" },
   subTitle: { color: "#5b3a8a", marginTop: 0 },
-  card: { display: "flex", gap: "15px", background: "#fff", padding: "12px", borderRadius: "12px", marginBottom: "10px", cursor: "pointer" },
+  card: {
+    display: "flex",
+    gap: "15px",
+    background: "#fff",
+    padding: "12px",
+    borderRadius: "12px",
+    marginBottom: "10px",
+    cursor: "pointer"
+  },
   citaContainer: { display: "flex", justifyContent: "center", marginBottom: "25px" },
   citaImg: { width: "220px", borderRadius: "15px" },
   citaCard: { background: "#fff", padding: "20px", borderRadius: "15px", marginBottom: "15px" },
@@ -1472,7 +1518,14 @@ const styles = {
     margin: "0 auto",
     textAlign: "center"
   },
-  input: { display: "block", width: "100%", margin: "8px 0 16px", padding: "10px", borderRadius: "8px", border: "1px solid #ddd" },
+  input: {
+    display: "block",
+    width: "100%",
+    margin: "8px 0 16px",
+    padding: "10px",
+    borderRadius: "8px",
+    border: "1px solid #ddd"
+  },
   textarea: {
     display: "block",
     width: "100%",
@@ -1483,12 +1536,21 @@ const styles = {
     minHeight: "90px",
     resize: "vertical"
   },
-  buyBtn: { marginTop: "15px", padding: "12px", background: "#d9b3ff", border: "none", borderRadius: "10px", cursor: "pointer" },
+  buyBtn: {
+    marginTop: "15px",
+    padding: "12px",
+    background: "#d9b3ff",
+    border: "none",
+    borderRadius: "10px",
+    cursor: "pointer"
+  },
   notice: { margin: "6px 0", color: "#666", fontSize: "14px" },
   footer: {
     marginTop: "50px",
     borderTop: "1px solid #ddd",
     paddingTop: "20px",
+    paddingBottom: "10px",
+    background: "#f7f0ff",
     display: "flex",
     justifyContent: "space-between",
     alignItems: "flex-start",
@@ -1496,13 +1558,32 @@ const styles = {
     flexWrap: "wrap"
   },
   footerBlock: { flex: "1 1 320px", maxWidth: "650px" },
-  footerBlockCentered: { flex: "1 1 260px", display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center" },
+  footerBlockCentered: {
+    flex: "1 1 260px",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    textAlign: "center"
+  },
   text: { fontSize: "14px", color: "#666" },
   textLong: { fontSize: "14px", color: "#666", lineHeight: "1.6" },
-  social: { display: "flex", gap: "8px", alignItems: "center", textDecoration: "none", marginTop: "8px", color: "#5b3a8a" },
+  social: {
+    display: "flex",
+    gap: "8px",
+    alignItems: "center",
+    textDecoration: "none",
+    marginTop: "8px",
+    color: "#5b3a8a"
+  },
   icon: { width: "18px", height: "18px" },
   label: { display: "block", marginBottom: "6px", color: "#5b3a8a", fontWeight: 600 },
-  dropdownMulti: { marginBottom: "16px", border: "1px solid #ddd", borderRadius: "10px", overflow: "hidden", background: "#fff" },
+  dropdownMulti: {
+    marginBottom: "16px",
+    border: "1px solid #ddd",
+    borderRadius: "10px",
+    overflow: "hidden",
+    background: "#fff"
+  },
   dropdownSummary: {
     cursor: "pointer",
     listStyle: "none",
@@ -1514,6 +1595,11 @@ const styles = {
     gap: "8px"
   },
   dropdownCount: { fontWeight: 400, color: "#666", fontSize: "13px" },
-  dropdownPanel: { borderTop: "1px solid #eee", maxHeight: "220px", overflowY: "auto", padding: "10px" },
+  dropdownPanel: {
+    borderTop: "1px solid #eee",
+    maxHeight: "220px",
+    overflowY: "auto",
+    padding: "10px"
+  },
   checkboxItem: { display: "flex", gap: "8px", alignItems: "center", padding: "6px 0", color: "#444" }
 }
